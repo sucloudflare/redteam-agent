@@ -1,10 +1,4 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<title>Red Team Agent v1.1</title>
-</head>
-<body>
+
 <h1>⬡ RED TEAM AGENT v1.1</h1>
 <p><b>Ollama Local — Pentest AI</b></p>
 
