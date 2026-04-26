@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Red Team Agent — Ollama</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0d0f;
+    --bg2:       #0f1317;
+    --bg3:       #141a1f;
+    --border:    #1e2a30;
+    --green:     #00ff9d;
+    --green-dim: #00cc7a;
+    --green-dk:  #003d25;
+    --red:       #ff3860;
+    --amber:     #ffb347;
+    --blue:      #4dc3ff;
+    --purple:    #c084fc;
+    --text:      #c8d8e0;
+    --text-dim:  #6a8a9a;
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    display: flex;
+    flex-direction: column;
+  }
+
+  #header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .status-dot.online {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .logo { color: var(--green); font-size: 13px; font-weight: 700; letter-spacing: 2px; }
+
+  #mode-tabs { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+
+  .tab {
+    padding: 4px 10px;
+    font-size: 10px;
+    font-family: var(--mono);
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 1px;
+    transition: all .15s;
+  }
+  .tab:hover  { border-color: var(--green); color: var(--green); }
+  .tab.active { background: var(--green-dk); border-color: var(--green); color: var(--green); }
+
+  #config-bar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  #config-bar label { color: var(--text-dim); white-space: nowrap; }
+  #config-bar input,
+  #config-bar select {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+  }
+  #ollama-url   { width: 200px; }
+  #custom-model { width: 140px; display: none; }
+  #config-bar .sep { color: var(--border); }
+
+  #chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  #chat-area::-webkit-scrollbar { width: 4px; }
+  #chat-area::-webkit-scrollbar-track { background: var(--bg); }
+  #chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg { display: flex; flex-direction: column; gap: 4px; animation: fadeIn .2s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+
+  .msg-label { font-size: 10px; letter-spacing: 1.5px; font-weight: 700; }
+  .msg.user   .msg-label { color: var(--blue); }
+  .msg.agent  .msg-label { color: var(--green); }
+  .msg.system .msg-label { color: var(--text-dim); }
+
+  .msg-content {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 12.5px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user   .msg-content { border-left: 2px solid var(--blue); }
+  .msg.agent  .msg-content { border-left: 2px solid var(--green); }
+  .msg.system .msg-content { border-left: 2px solid var(--text-dim); color: var(--text-dim); font-style: italic; font-size: 11px; }
+
+  .code-block {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+  }
+  .code-block-header {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    letter-spacing: 1px;
+  }
+  .copy-btn:hover { color: var(--green); border-color: var(--green); }
+  .code-block pre { color: var(--green); font-size: 12px; line-height: 1.6; margin: 0; overflow-x: auto; }
+
+  .msg-content code {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 0 4px;
+    border-radius: 2px;
+    color: var(--amber);
+    font-family: var(--mono);
+  }
+
+  .mitre-tag {
+    display: inline-block;
+    background: #1a0a2e;
+    border: 1px solid #4a1a8a;
+    color: var(--purple);
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 2px;
+    letter-spacing: 1px;
+    margin: 1px 2px 0 0;
+  }
+  .sev-tag { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 2px; letter-spacing: 1px; margin: 1px 2px 0 0; font-weight: 700; }
+  .sev-critical { background: #2a0a0a; border: 1px solid var(--red);   color: var(--red);   }
+  .sev-high     { background: #2a1a00; border: 1px solid var(--amber); color: var(--amber); }
+  .sev-info     { background: #001a2a; border: 1px solid var(--blue);  color: var(--blue);  }
+
+  .thinking { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+  .thinking span { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: blink 1.2s infinite; }
+  .thinking span:nth-child(2) { animation-delay: .2s; }
+  .thinking span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+
+  #quick-actions {
+    display: flex;
+    gap: 6px;
+    padding: 6px 16px;
+    overflow-x: auto;
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+  }
+  #quick-actions::-webkit-scrollbar { display: none; }
+  .qa-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 12px;
+    cursor: pointer;
+    border-radius: 3px;
+    white-space: nowrap;
+    letter-spacing: .5px;
+    transition: all .15s;
+  }
+  .qa-btn:hover { border-color: var(--green); color: var(--green); }
+
+  #input-area {
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  #prompt-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    resize: none;
+    min-height: 44px;
+    max-height: 160px;
+    line-height: 1.5;
+    transition: border-color .15s;
+  }
+  #prompt-input:focus { outline: none; border-color: var(--green); }
+  #prompt-input::placeholder { color: var(--text-dim); }
+
+  #send-btn {
+    background: var(--green-dk);
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 10px 18px;
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    white-space: nowrap;
+    transition: all .15s;
+  }
+  #send-btn:hover    { background: var(--green); color: var(--bg); }
+  #send-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  #status-bar {
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 3px 16px;
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  #status-bar span { letter-spacing: .5px; }
+  .ok  { color: var(--green); }
+  .err { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="status-dot" id="status-dot"></div>
+  <div class="logo">⬡ RED TEAM AGENT</div>
+  <div id="mode-tabs">
+    <button class="tab active" onclick="setMode('general')"   id="tab-general">GENERAL</button>
+    <button class="tab"        onclick="setMode('recon')"     id="tab-recon">RECON</button>
+    <button class="tab"        onclick="setMode('exploit')"   id="tab-exploit">EXPLOIT</button>
+    <button class="tab"        onclick="setMode('ctf')"       id="tab-ctf">CTF</button>
+    <button class="tab"        onclick="setMode('mitre')"     id="tab-mitre">MITRE</button>
+    <button class="tab"        onclick="setMode('bugbounty')" id="tab-bugbounty">BUG BOUNTY</button>
+    <button class="tab"        onclick="setMode('poc')"       id="tab-poc">POC GEN</button>
+  </div>
+</div>
+
+<div id="config-bar">
+  <label>OLLAMA:</label>
+  <input type="text" id="ollama-url" value="http://localhost:11434" />
+  <span class="sep">|</span>
+  <label>MODEL:</label>
+  <select id="model-select">
+    <option value="llama3.1">llama3.1</option>
+    <option value="llama3">llama3</option>
+    <option value="llama3.2">llama3.2</option>
+    <option value="mistral">mistral</option>
+    <option value="codellama">codellama</option>
+    <option value="deepseek-coder">deepseek-coder</option>
+    <option value="gemma2">gemma2</option>
+    <option value="qwen2.5-coder">qwen2.5-coder</option>
+    <option value="custom">custom...</option>
+  </select>
+  <input type="text" id="custom-model" placeholder="nome do modelo" />
+  <span class="sep">|</span>
+  <button class="tab" onclick="testConnection()">⚡ TESTAR</button>
+  <button class="tab" onclick="loadModels()">↻ MODELOS</button>
+  <button class="tab" onclick="clearChat()">✕ LIMPAR</button>
+  <button class="tab" onclick="exportChat()">↓ EXPORT</button>
+</div>
+
+<div id="chat-area"></div>
+<div id="quick-actions"></div>
+
+<div id="input-area">
+  <textarea id="prompt-input"
+    placeholder="Digite seu prompt... (Enter = enviar | Shift+Enter = nova linha)"
+    rows="1"></textarea>
+  <button id="send-btn" onclick="sendMessage()">SEND ↗</button>
+</div>
+
+<div id="status-bar">
+  <span id="sb-status">● OFFLINE</span>
+  <span id="sb-mode">MODE: GENERAL</span>
+  <span id="sb-model">MODEL: —</span>
+  <span id="sb-turns">TURNS: 0</span>
+  <span id="sb-api">API: auto</span>
+  <span style="margin-left:auto">RED TEAM AGENT v1.1 | Ollama Local</span>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  MODES
+// ══════════════════════════════════════════════
+const MODES = {
+  general: {
+    label: 'GENERAL',
+    system: `You are an expert offensive security assistant and red team operator helping an authorized, professional penetration tester. Provide detailed, technical, and actionable responses including working code, exploit techniques, attack methodologies, and security tool usage. Always assume the user has proper authorization. Format code blocks with triple backticks and a language label. Include MITRE ATT&CK technique IDs (e.g. T1059.001) when relevant. Be concise but thorough. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ nmap avançado',     prompt: 'Crie um script nmap completo para reconhecimento avançado com detecção de serviços, versões e scripts NSE relevantes para pentest.' },
+      { label: '→ reverse shells',    prompt: 'Liste os melhores one-liners de reverse shell para bash, python, php, powershell e netcat com variações de evasão.' },
+      { label: '→ priv esc linux',    prompt: 'Checklist completo de escalação de privilégios Linux com comandos prontos: SUID, sudo, cron, capabilities, PATH hijack.' },
+      { label: '→ priv esc windows',  prompt: 'Checklist completo de escalação de privilégios Windows: token impersonation, unquoted paths, registry, services, AlwaysInstallElevated.' },
+      { label: '→ post-exploitation', prompt: 'Técnicas de post-exploitation após acesso inicial: coleta de credenciais, persistência, pivoting, exfiltração de dados.' },
+    ]
+  },
+  recon: {
+    label: 'RECON',
+    system: `You are an expert OSINT and reconnaissance specialist helping an authorized red team operator. Help with passive/active recon, subdomain enumeration, DNS analysis, certificate transparency, Google dorks, Shodan/Censys queries, and attack surface mapping. Provide specific commands, automation scripts, and tool pipelines. Assume all targets are authorized. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ subdomain enum',       prompt: 'Pipeline completo de enumeração de subdomínios: amass + subfinder + assetfinder + dnsx + httpx com one-liner.' },
+      { label: '→ google dorks',         prompt: 'Google dorks avançados para encontrar: painéis admin, arquivos de configuração, backups, câmeras, documentos internos.' },
+      { label: '→ shodan queries',       prompt: 'Queries Shodan avançadas para: serviços expostos, IoT vulnerável, bancos de dados abertos, painéis de controle industrial.' },
+      { label: '→ github recon',         prompt: 'Técnicas de OSINT no GitHub: tokens e credenciais expostos, endpoints internos, histórico de commits, secrets em código.' },
+      { label: '→ cloud attack surface', prompt: 'Mapeamento de superfície de ataque em cloud: S3/GCS/Azure buckets, subdomain takeover, metadata endpoints, permissões IAM.' },
+    ]
+  },
+  exploit: {
+    label: 'EXPLOIT',
+    system: `You are an expert exploit developer and vulnerability researcher assisting an authorized security professional. Help write exploits, develop PoCs, analyze vulnerabilities (web, network, binary), reverse engineering, and shellcode. Provide complete working exploit code with explanations of vulnerability mechanics. Assume all work is for authorized testing and research. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ SQL injection',       prompt: 'Técnicas avançadas de SQL injection: boolean-based, time-based, union-based, out-of-band. Payloads e automação com sqlmap.' },
+      { label: '→ XSS + WAF bypass',    prompt: 'Payloads avançados de XSS para WAF bypass, CSP bypass, XSS stored para account takeover, DOM-based XSS.' },
+      { label: '→ SSRF completo',        prompt: 'Técnicas SSRF: bypass de filtros de IP, acesso a metadata AWS/GCP/Azure, SSRF blind, SSRF para RCE via gopher.' },
+      { label: '→ deserialização',       prompt: 'Exploração de deserialização insegura: Java (ysoserial), PHP unserialize, Python pickle, .NET. Payloads prontos.' },
+      { label: '→ buffer overflow x86',  prompt: 'Tutorial prático de buffer overflow x86 com Python: controle EIP, NOP sled, shellcode, bypass de ASLR básico.' },
+    ]
+  },
+  ctf: {
+    label: 'CTF',
+    system: `You are an expert CTF player and coach helping solve Capture The Flag challenges. Help with all categories: web exploitation, binary exploitation (pwn), reverse engineering, cryptography, forensics, steganography, OSINT, and misc. Provide step-by-step solutions, complete working exploit scripts (prefer Python/pwntools), and explain techniques used. Be thorough and include actual solution code. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ pwn template',          prompt: 'Template completo de exploit com pwntools: conexão local/remota, leak de endereços, ret2libc, ROP chain com comentários.' },
+      { label: '→ web CTF checklist',     prompt: 'Checklist completo para CTF web: SQLi, LFI/RFI, SSTI (Jinja2/Twig), JWT ataques, XXE, SSRF, deserialization.' },
+      { label: '→ crypto CTF',            prompt: 'Técnicas de criptografia em CTF: RSA weak keys (e=3, common modulus), AES-ECB penguin, padding oracle, hash length extension.' },
+      { label: '→ forensics toolkit',     prompt: 'Ferramentas e técnicas de forensics: Volatility3 para memória, autopsy para disco, Wireshark para rede, steghide/zsteg.' },
+      { label: '→ reversing workflow',    prompt: 'Workflow para reverse engineering: Ghidra, radare2, angr symbolic execution, GDB com PEDA/pwndbg, anti-debug bypass.' },
+    ]
+  },
+  mitre: {
+    label: 'MITRE ATT&CK',
+    system: `You are an expert in the MITRE ATT&CK framework helping an authorized red team operator. Map attack techniques to ATT&CK IDs, create complete attack chains (kill chains), develop adversary emulation plans, explain TTPs used by real threat actors, and create detection rules (SIGMA format). Always include technique IDs (T####) and sub-technique IDs (T####.###). Provide both offensive techniques and defensive detection opportunities. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ kill chain APT',        prompt: 'Construa uma kill chain completa de APT simulada mapeada ao MITRE ATT&CK: Initial Access → Execution → Persistence → Privilege Escalation → Defense Evasion → Credential Access → Discovery → Lateral Movement → Collection → Exfiltration, com técnicas e IDs específicos.' },
+      { label: '→ initial access TA0001', prompt: 'Todas as técnicas de Initial Access (TA0001): spearphishing, supply chain, drive-by, external remote services. Exemplos práticos e detecção.' },
+      { label: '→ persistence TA0003',    prompt: 'Técnicas de Persistence (TA0003) Windows e Linux com comandos, detecção SIGMA e mitigações MITRE.' },
+      { label: '→ lateral movement',      prompt: 'Lateral Movement (TA0008): Pass-the-Hash (T1550.002), Pass-the-Ticket (T1550.003), WMI, PsExec, RDP hijacking. Comandos prontos.' },
+      { label: '→ C2 frameworks',         prompt: 'Compare C2 frameworks (Cobalt Strike, Havoc, Sliver, Metasploit, Brute Ratel) mapeando capacidades ao MITRE ATT&CK com técnicas específicas.' },
+    ]
+  },
+  bugbounty: {
+    label: 'BUG BOUNTY',
+    system: `You are an expert bug bounty hunter helping an authorized researcher. Help with bug bounty methodology, finding high-impact vulnerabilities in web apps, APIs, mobile, and cloud, crafting PoCs, writing professional reports, and bypassing security controls. Provide specific payloads, Burp Suite workflows, automation scripts, and tips for finding unique vulnerabilities. Focus on high/critical severity. Assume all targets are in scope. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ API testing',        prompt: 'Metodologia completa para bug bounty em APIs REST: broken authentication, broken authorization, IDOR, mass assignment, injection, rate limiting, security misconfig.' },
+      { label: '→ IDOR avançado',      prompt: 'Técnicas avançadas de IDOR: horizontal/vertical privilege escalation, GUIDs previsíveis, hash IDs, IDOR em WebSockets, chained IDOR para account takeover.' },
+      { label: '→ account takeover',   prompt: 'Técnicas de account takeover: JWT attacks, OAuth 2.0 flaws, password reset poisoning, session fixation, race condition no registro.' },
+      { label: '→ cloud misconfig',    prompt: 'Misconfigurações em cloud para bug bounty: S3 buckets públicos, GCS, Azure Blob, metadata SSRF, IAM privilege escalation, Lambda functions.' },
+      { label: '→ template relatório', prompt: 'Escreva um template profissional de relatório de bug bounty com: título, severidade, CVSS, descrição, impacto, steps to reproduce, PoC, remediação.' },
+    ]
+  },
+  poc: {
+    label: 'POC GEN',
+    system: `You are an expert at developing Proof of Concept (PoC) exploits and security tools for authorized testing. Generate complete, working PoC code for vulnerabilities. Preferred languages: Python 3, Bash, Go. Include all imports, error handling, argparse for CLI args, and detailed comments explaining the exploit mechanics. Make PoCs clean, well-documented, and immediately runnable. Answer in the same language the user writes in.`,
+    actions: [
+      { label: '→ PoC web Python',           prompt: 'Template completo de PoC web em Python: argparse para URL/alvo, sessão HTTP, injeção de payload, detecção de sucesso, output colorido, logging.' },
+      { label: '→ fuzzer web',               prompt: 'Fuzzer web assíncrono em Python com asyncio+aiohttp: wordlist, threading, detecção de anomalias por status/tamanho/tempo, output formatado.' },
+      { label: '→ port scanner async',       prompt: 'Port scanner assíncrono em Python com asyncio: range de portas, banner grabbing, detecção de serviço, output com rich ou colorama.' },
+      { label: '→ exploit skeleton pwntools', prompt: 'Skeleton completo de exploit com pwntools: args de linha de comando, conexão local/remote, leak de addresses, ROP chain, flag de debug.' },
+      { label: '→ CVE PoC structure',        prompt: 'Como estruturar um PoC profissional para um CVE: verificação de vulnerabilidade, exploração completa, cleanup, output e documentação README.' },
+    ]
+  }
+};
+
+// ══════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════
+let currentMode = 'general';
+let history     = [];
+let isLoading   = false;
+let turnCount   = 0;
+// 'chat' = /api/chat (Ollama >= 0.1.14)
+// 'generate' = /api/generate (older Ollama)
+let apiStyle    = 'chat';
+
+// ══════════════════════════════════════════════
+//  DOM HELPERS
+// ══════════════════════════════════════════════
+const $  = id => document.getElementById(id);
+const ca = () => $('chat-area');
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatContent(raw) {
+  let result = '';
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(raw)) !== null) {
+    result += processInline(escHtml(raw.slice(lastIndex, match.index)));
+    const lang = match[1] || 'code';
+    const code = match[2].trim();
+    const id   = 'cb_' + Math.random().toString(36).slice(2, 8);
+    result +=
+      '<div class="code-block">' +
+        '<div class="code-block-header">' +
+          '<span>' + escHtml(lang.toUpperCase()) + '</span>' +
+          '<button class="copy-btn" onclick="copyCode(\'' + id + '\')">COPY</button>' +
+        '</div>' +
+        '<pre id="' + id + '">' + escHtml(code) + '</pre>' +
+      '</div>';
+    lastIndex = match.index + match[0].length;
+  }
+  result += processInline(escHtml(raw.slice(lastIndex)));
+  return result;
+}
+
+function processInline(s) {
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  s = s.replace(/\b(T\d{4}(?:\.\d{3})?)\b/g, '<span class="mitre-tag">$1</span>');
+  s = s.replace(/\bCRITICAL\b/g, '<span class="sev-tag sev-critical">CRITICAL</span>');
+  s = s.replace(/\bHIGH\b/g,     '<span class="sev-tag sev-high">HIGH</span>');
+  s = s.replace(/\bINFO\b/g,     '<span class="sev-tag sev-info">INFO</span>');
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
+function copyCode(id) {
+  const el = $(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const btn = el.closest('.code-block').querySelector('.copy-btn');
+    if (btn) { btn.textContent = 'COPIED!'; setTimeout(() => btn.textContent = 'COPY', 1500); }
+  }).catch(() => {});
+}
+
+function addMsg(type, label, html, raw) {
+  raw = raw || '';
+  const area = ca();
+  const div  = document.createElement('div');
+  div.className = 'msg ' + type;
+
+  const lbl = document.createElement('div');
+  lbl.className   = 'msg-label';
+  lbl.textContent = label;
+
+  const cnt = document.createElement('div');
+  cnt.className   = 'msg-content';
+  cnt.innerHTML   = html;
+  cnt.dataset.raw = raw;
+
+  div.appendChild(lbl);
+  div.appendChild(cnt);
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return cnt;
+}
+
+function sysMsg(text) {
+  addMsg('system', '◈ SYSTEM', formatContent(text), text);
+}
+
+function thinkingMsg() {
+  const cnt = addMsg('agent', '⬡ AGENT',
+    '<div class="thinking"><span></span><span></span><span></span></div>');
+  cnt.id = 'live-msg';
+  ca().scrollTop = ca().scrollHeight;
+  return cnt;
+}
+
+// ══════════════════════════════════════════════
+//  STATUS BAR
+// ══════════════════════════════════════════════
+function setStatus(online) {
+  const dot = $('status-dot');
+  dot.className = 'status-dot' + (online ? ' online' : '');
+  $('sb-status').textContent = online ? '● ONLINE' : '● OFFLINE';
+  $('sb-status').className   = online ? 'ok'        : 'err';
+}
+
+function updateBar() {
+  $('sb-mode').textContent  = 'MODE: '  + MODES[currentMode].label;
+  $('sb-model').textContent = 'MODEL: ' + getModel();
+  $('sb-turns').textContent = 'TURNS: ' + turnCount;
+  $('sb-api').textContent   = 'API: '   + apiStyle;
+}
+
+// ══════════════════════════════════════════════
+//  CONFIG HELPERS
+// ══════════════════════════════════════════════
+const modelSel    = $('model-select');
+const customInput = $('custom-model');
+
+modelSel.addEventListener('change', () => {
+  customInput.style.display = modelSel.value === 'custom' ? 'inline-block' : 'none';
+  updateBar();
+});
+
+function getModel()   { return modelSel.value === 'custom' ? customInput.value.trim() : modelSel.value; }
+function getBaseUrl() { return $('ollama-url').value.replace(/\/$/, ''); }
+
+// ══════════════════════════════════════════════
+//  MODE
+// ══════════════════════════════════════════════
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('#mode-tabs .tab').forEach(t => t.classList.remove('active'));
+  $('tab-' + mode).classList.add('active');
+  renderActions();
+  sysMsg('Modo: ' + MODES[mode].label);
+  updateBar();
+}
+
+function renderActions() {
+  const qa = $('quick-actions');
+  qa.innerHTML = '';
+  MODES[currentMode].actions.forEach(a => {
+    const btn = document.createElement('button');
+    btn.className   = 'qa-btn';
+    btn.textContent = a.label;
+    btn.onclick = () => { $('prompt-input').value = a.prompt; sendMessage(); };
+    qa.appendChild(btn);
+  });
+}
+
+// ══════════════════════════════════════════════
+//  OLLAMA CONNECTION + AUTO-DETECT API STYLE
+// ══════════════════════════════════════════════
+async function testConnection() {
+  sysMsg('Testando conexão com ' + getBaseUrl() + ' ...');
+  try {
+    // Step 1 — can we reach /api/tags?
+    const res = await fetch(getBaseUrl() + '/api/tags');
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' em /api/tags');
+    const data   = await res.json();
+    const models = data.models || [];
+    populateModels(models);
+
+    // Step 2 — detect which chat endpoint works
+    const detected = await detectApiStyle();
+
+    setStatus(true);
+    sysMsg(
+      '✓ Ollama online!\n' +
+      '  URL     : ' + getBaseUrl() + '\n' +
+      '  Endpoint: /api/' + detected + '\n' +
+      '  Modelos : ' + (models.length ? models.map(m => m.name).join(', ') : '(nenhum — rode: ollama pull llama3.1)') + '\n' +
+      (models.length === 0 ? '\n⚠ Instale um modelo antes de enviar mensagens.' : '')
+    );
+    updateBar();
+  } catch (e) {
+    setStatus(false);
+    const cors = e.message === 'Failed to fetch' || e.message.includes('NetworkError') || e.message.includes('fetch');
+    sysMsg(
+      '✗ Falha: ' + e.message + '\n\n' +
+      (cors ? 'Causa provável: CORS bloqueado ou Ollama não está rodando.\n\n' : '') +
+      'Soluções:\n' +
+      '  1. Reinicie o Ollama com CORS aberto:\n' +
+      '       OLLAMA_ORIGINS=* ollama serve\n\n' +
+      '  2. Teste no terminal:\n' +
+      '       curl ' + getBaseUrl() + '/api/tags\n\n' +
+      '  3. Verifique se a porta 11434 não está bloqueada por firewall.'
+    );
+  }
+}
+
+// Returns detected style and updates global apiStyle
+async function detectApiStyle() {
+  try {
+    const probe = await fetch(getBaseUrl() + '/api/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model:    getModel(),
+        messages: [{ role: 'user', content: 'hi' }],
+        stream:   false
+      })
+    });
+    // 404 = endpoint doesn't exist → old Ollama, use /api/generate
+    apiStyle = (probe.status === 404) ? 'generate' : 'chat';
+  } catch (_) {
+    apiStyle = 'generate';
+  }
+  return apiStyle;
+}
+
+async function loadModels() {
+  try {
+    const res  = await fetch(getBaseUrl() + '/api/tags');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    populateModels(data.models || []);
+    sysMsg('Modelos: ' + (data.models || []).map(m => m.name).join(', '));
+    setStatus(true);
+  } catch (e) {
+    sysMsg('Erro ao carregar modelos: ' + e.message);
+  }
+}
+
+function populateModels(models) {
+  const existing = new Set(Array.from(modelSel.options).map(o => o.value));
+  models.forEach(m => {
+    if (!existing.has(m.name)) {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = m.name;
+      modelSel.insertBefore(opt, modelSel.lastElementChild);
+    }
+  });
+  // Auto-select first installed model
+  if (models.length > 0 && !existing.has(models[0].name)) {
+    modelSel.value = models[0].name;
+  }
+  updateBar();
+}
+
+// ══════════════════════════════════════════════
+//  BUILD REQUEST (handles both API styles)
+// ══════════════════════════════════════════════
+function buildRequestBody(messages, stream) {
+  const model = getModel();
+  if (apiStyle === 'chat') {
+    return JSON.stringify({ model, messages, stream });
+  }
+  // /api/generate: flatten conversation to a single prompt string
+  const sys   = messages.find(m => m.role === 'system');
+  const convo = messages.filter(m => m.role !== 'system');
+  let prompt  = sys ? sys.content + '\n\n' : '';
+  convo.forEach(m => {
+    prompt += (m.role === 'user' ? 'User: ' : 'Assistant: ') + m.content + '\n';
+  });
+  return JSON.stringify({ model, prompt, stream });
+}
+
+function extractChunk(d) {
+  if (apiStyle === 'chat') return (d.message && d.message.content) ? d.message.content : '';
+  return d.response || '';
+}
+
+// ══════════════════════════════════════════════
+//  SEND MESSAGE + STREAM
+// ══════════════════════════════════════════════
+async function sendMessage() {
+  if (isLoading) return;
+
+  const input = $('prompt-input');
+  const text  = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  addMsg('user', '▸ OPERATOR', formatContent(text), text);
+  history.push({ role: 'user', content: text });
+
+  isLoading = true;
+  $('send-btn').disabled = true;
+
+  const live = thinkingMsg();
+
+  try {
+    const messages = [
+      { role: 'system', content: MODES[currentMode].system },
+      ...history
+    ];
+
+    let res = await fetch(getBaseUrl() + '/api/' + apiStyle, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    buildRequestBody(messages, true)
+    });
+
+    // Auto-fallback: if /api/chat gives 404, switch to /api/generate and retry once
+    if (res.status === 404 && apiStyle === 'chat') {
+      apiStyle = 'generate';
+      updateBar();
+      sysMsg('ℹ /api/chat não disponível — usando /api/generate ...');
+      res = await fetch(getBaseUrl() + '/api/generate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    buildRequestBody(messages, true)
+      });
+    }
+
+    if (!res.ok) {
+      let detail = '';
+      try { detail = ' — ' + (await res.text()).slice(0, 300); } catch (_) {}
+      throw new Error('HTTP ' + res.status + ' ' + res.statusText + detail);
+    }
+
+    // ── NDJSON streaming reader ────────────────
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    let buf  = '';
+
+    live.innerHTML = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep incomplete tail
+
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          const d     = JSON.parse(t);
+          const chunk = extractChunk(d);
+          if (chunk) {
+            full += chunk;
+            live.innerHTML = formatContent(full);
+            ca().scrollTop = ca().scrollHeight;
+          }
+          if (d.done === true) break;
+        } catch (_) {
+          // non-JSON keep-alive line, skip silently
+        }
+      }
+    }
+
+    // Flush any remaining buffer
+    if (buf.trim()) {
+      try {
+        const d = JSON.parse(buf.trim());
+        const chunk = extractChunk(d);
+        if (chunk) { full += chunk; live.innerHTML = formatContent(full); }
+      } catch (_) {}
+    }
+
+    live.id          = '';
+    live.dataset.raw = full;
+
+    history.push({ role: 'assistant', content: full });
+    if (history.length > 30) history = history.slice(-30);
+
+    turnCount++;
+    setStatus(true);
+    updateBar();
+
+  } catch (e) {
+    // Roll back the user message so history stays consistent
+    history.pop();
+
+    live.id        = '';
+    const cors     = e.message === 'Failed to fetch' || e.message.includes('NetworkError');
+    live.innerHTML =
+      '<span class="err">' +
+      'ERRO: ' + escHtml(e.message) + '\n\n' +
+      (cors ? 'Problema de CORS ou Ollama offline.\n\n' : '') +
+      'Ações:\n' +
+      '  1. OLLAMA_ORIGINS=* ollama serve\n' +
+      '  2. ollama pull ' + escHtml(getModel()) + '\n' +
+      '  3. Clique ⚡ TESTAR para diagnóstico completo.' +
+      '</span>';
+    setStatus(false);
+    updateBar();
+  } finally {
+    isLoading = false;
+    $('send-btn').disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════
+function clearChat() {
+  history = []; turnCount = 0;
+  ca().innerHTML = '';
+  sysMsg('Chat limpo. Histórico resetado.');
+  updateBar();
+}
+
+function exportChat() {
+  const msgs  = ca().querySelectorAll('.msg');
+  const lines = ['RED TEAM AGENT — Export ' + new Date().toISOString() + '\n'];
+  msgs.forEach(m => {
+    const lbl = m.querySelector('.msg-label')  ? m.querySelector('.msg-label').textContent  : '';
+    const raw = m.querySelector('.msg-content')
+      ? (m.querySelector('.msg-content').dataset.raw || m.querySelector('.msg-content').innerText)
+      : '';
+    lines.push('\n[' + lbl + ']\n' + raw + '\n' + '─'.repeat(60));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'redteam_session_' + Date.now() + '.txt';
+  a.click();
+}
+
+// ══════════════════════════════════════════════
+//  INPUT
+// ══════════════════════════════════════════════
+const inp = $('prompt-input');
+inp.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+inp.addEventListener('input', () => {
+  inp.style.height = 'auto';
+  inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+});
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+(function init() {
+  renderActions();
+  updateBar();
+  sysMsg(
+    'Red Team Agent v1.1 inicializado.\n\n' +
+    'SETUP RÁPIDO:\n' +
+    '  1. Certifique-se que o modelo está baixado:\n' +
+    '       ollama pull llama3.1\n\n' +
+    '  2. Inicie o Ollama com CORS aberto (num terminal separado):\n' +
+    '       OLLAMA_ORIGINS=* ollama serve\n\n' +
+    '  3. Clique em ⚡ TESTAR — detecta a versão do Ollama e\n' +
+    '     auto-seleciona /api/chat ou /api/generate.\n\n' +
+    'Modos: GENERAL | RECON | EXPLOIT | CTF | MITRE | BUG BOUNTY | POC GEN'
+  );
+
+  // Auto-test on load (silent — just updates status dot)
+  fetch(getBaseUrl() + '/api/tags')
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(data => {
+      populateModels(data.models || []);
+      return detectApiStyle();
+    })
+    .then(() => { setStatus(true); updateBar(); })
+    .catch(() => { /* silently stay offline */ });
+})();
+</script>
+</body>
+</html>
