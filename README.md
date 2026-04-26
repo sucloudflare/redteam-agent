@@ -1,6 +1,6 @@
 
 <h1>⬡ RED TEAM AGENT v1.1</h1>
-<img src='h.jpeg alt='img'>
+<img src='h.jpeg' alt='img'>
 <p><b>Ollama Local — Pentest AI</b></p>
 
 <h2>📌 Sobre o Projeto</h2>
